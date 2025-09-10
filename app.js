@@ -62,19 +62,19 @@ module.exports = class MyApp extends Homey.App {
     }
 
     
-    const allDevicesInZone = devices.filter(d => d.zone === zoneIdByName);
+    /*const allDevicesInZone = devices.filter(d => d.zone === zoneIdByName);
     this.log(`Luces en la zona "${zoneName}":`, allDevicesInZone.map(l => l.name));
-    return allDevicesInZone.map(d => ({ id: d.id, name: d.name, zone: zoneName }));
+    return allDevicesInZone.map(d => ({ id: d.id, name: d.name, zone: zoneName }));*/
   
 
-    /*const lights = devices.filter(d =>
+    const lights = devices.filter(d =>
       d.zone === zoneIdByName &&
       (d.class === 'light' || d.capabilitiesObj?.onoff) // heurística por si es socket/driver custom
     );
 
     this.log(`Luces en la zona "${zoneName}":`, lights.map(l => l.name));
     return lights.map(d => ({ id: d.id, name: d.name, zone: zoneName }));
-    */
+    
   }
 
 
