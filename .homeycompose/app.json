@@ -1,0 +1,88 @@
+{
+  "id": "com.panteasmart.occupancysim",
+  "version": "1.0.0",
+  "compatibility": ">=12.4.0",
+  "sdk": 3,
+  "platforms": [
+    "local"
+  ],
+  "name": {
+    "en": "com.panteasmart.occupancysim"
+  },
+  "description": {
+    "en": "occupancy simulator that turns lights on and off with stadistics"
+  },
+  "category": [
+    "lights"
+  ],
+  "permissions": [
+    "homey:manager:api"
+  ],
+  "api": {
+    "setHomeyApi": {
+      "method": "GET",
+      "path": "/homey-api",
+      "public": true
+    },
+    "getDeviceCapabilities": {
+      "method": "GET",
+      "path": "/getDeviceCapabilities/",
+      "public": true
+    },
+    "getDevicesWithOnOff": {
+      "method": "GET",
+      "path": "/getDevicesWithOnOff",
+      "public": true
+    },
+    "getDevicesWithCapabilities": {
+      "method": "GET",
+      "path": "/getDevicesWithCapabilities",
+      "public": true
+    },
+    "getCommonDeviceCapabilities": {
+      "method": "GET",
+      "path": "/getCommonDeviceCapabilities/",
+      "public": true
+    },
+    "getDevices": {
+      "method": "GET",
+      "path": "/getDevices",
+      "public": true
+    },
+    "getSettings": {
+      "method": "GET",
+      "path": "/getSettings",
+      "public": true
+    },
+    "setSettings": {
+      "method": "POST",
+      "path": "/setSettings",
+      "public": true
+    },
+    "getUserInfo": {
+      "method": "GET",
+      "path": "/getUserInfo",
+      "public": true
+    },
+    "refresh": {
+      "method": "GET",
+      "path": "/refresh",
+      "public": true
+    },
+    "getZones": {
+      "method": "GET",
+      "path": "/getZones",
+      "public": true
+    }
+  },
+  "images": {
+    "small": "/assets/images/small.png",
+    "large": "/assets/images/large.png",
+    "xlarge": "/assets/images/xlarge.png"
+  },
+  "author": {
+    "name": "Pantea Smart",
+    "email": "fernanpizarro@gmail.com"
+    
+  }
+}

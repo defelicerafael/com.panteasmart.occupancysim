@@ -1,0 +1,12 @@
+{
+  "name": "com.panteasmart.occupancysim",
+  "version": "1.0.0",
+  "main": "app.js",
+  "scripts": {},
+  "devDependencies": {
+    "@types/homey": "npm:homey-apps-sdk-v3-types@^0.3.12"
+  },
+  "dependencies": {
+    "homey-api": "^3.14.1"
+  }
+}
