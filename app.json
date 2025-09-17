@@ -11,7 +11,7 @@
     "en": "com.panteasmart.occupancysim"
   },
   "description": {
-    "en": "occupancy simulator that turns lights on and off with stadistics"
+    "en": "occupancy simulator that turns lights on and off with statistics"
   },
   "category": [
     "lights"
@@ -77,12 +77,48 @@
     }
   },
   "images": {
-    "small": "/assets/images/small.png",
-    "large": "/assets/images/large.png",
-    "xlarge": "/assets/images/xlarge.png"
+    "small": "/assets/images/icon.svg",
+    "large": "/assets/images/icon.svg",
+    "xlarge": "/assets/images/icon.svg"
   },
+  "brandColor": "#00B8D4",
   "author": {
     "name": "Pantea Smart",
     "email": "fernanpizarro@gmail.com"
-  }
+  },
+  "drivers": [
+    {
+      "id": "occupancy_logger_switch",
+      "name": {
+        "en": "Occupancy Logger Switch"
+      },
+      "class": "socket",
+      "platforms": [
+        "local"
+      ],
+      "images": {
+        "small": "/drivers/occupancy_logger_switch/assets/icon.svg",
+        "large": "/drivers/occupancy_logger_switch/assets/icon.svg",
+        "xlarge": "/drivers/occupancy_logger_switch/assets/icon.svg"
+      },
+      "connectivity": [],
+      "capabilities": [
+        "onoff"
+      ],
+      "settings": [],
+      "pair": [
+        {
+          "id": "list_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_devices"
+          }
+        },
+        {
+          "id": "add_devices",
+          "template": "add_devices"
+        }
+      ]
+    }
+  ]
 }

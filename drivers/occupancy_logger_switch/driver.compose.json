@@ -1,0 +1,37 @@
+{
+  "id": "occupancy_logger_switch",
+  "name": {
+    "en": "Occupancy Logger Switch"
+  },
+  "class": "socket",
+  "platforms": [
+    "local"
+  ],
+  "images": {
+    "small": "/drivers/occupancy_logger_switch/assets/icon.svg",
+    "large": "/drivers/occupancy_logger_switch/assets/icon.svg",
+    "xlarge": "/drivers/occupancy_logger_switch/assets/icon.svg"
+  },
+  "connectivity": [],
+  "capabilities": [
+    "onoff"
+  ],
+  "capabilitiesOptions": {
+    "onoff": {
+      "value": false
+    }
+  },
+  "settings": [],
+  "pair": [
+    {
+      "id": "list_devices",
+      "template": "list_devices",
+      "navigation": { "next": "add_devices" }
+    },
+    {
+      "id": "add_devices",
+      "template": "add_devices"
+    }
+  ]
+}
+

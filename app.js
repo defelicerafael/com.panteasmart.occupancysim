@@ -3,197 +3,224 @@
 const Homey = require('homey');
 const { HomeyAPI } = require('homey-api');
 
-// === Ajustes rápidos ===
-const DAYS_BACK = 5; // Ventana de búsqueda
-const ZONES_ARRAY = ['1. Living', '2. Cocina', '3. Playroom'];
-const CAPABILITY = 'onoff';
-
+const CONTROL_DRIVER_ID = 'occupancy_logger_switch';
 
 module.exports = class MyApp extends Homey.App {
   async onInit() {
-  this.log('MyApp has been initialized');
-  try {
-    this.homeyApi = await HomeyAPI.createAppAPI({ homey: this.homey });
-    this.appSettings = await this.homey.settings.get('settings') || {};
+    try {
+      this.homeyApi = await HomeyAPI.createAppAPI({ homey: this.homey });
+      this.user = await this.homeyApi.users.getUserMe();
+      this.fmtYMD = new Intl.DateTimeFormat('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit' });
+      this.fmtHM = new Intl.DateTimeFormat('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-    // Formatters
-    this.fmtYMD = new Intl.DateTimeFormat('es-AR', { year: 'numeric', month: '2-digit', day: '2-digit' });
-    this.fmtHM  = new Intl.DateTimeFormat('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+      this.switchOnTimestamp = null;
+      this.eventosGuardados = 0;
+      this.enabled = true;
+      this.controlSwitchListener = null;
+      this.controlSwitchDeviceId = null;
+      this.controlSwitchMissingLogged = false;
+      this.lightListeners = new Map();
 
-    // Precargar devices y zonas
-    const devicesObj = await this.homeyApi.devices.getDevices();
-    const zonesObj   = await this.homeyApi.zones.getZones();
+      await this._refreshDevices();
 
-    // Log de todas las zonas disponibles
-    this.log('🔍 Zonas disponibles:');
-    Object.values(zonesObj).forEach(zone => {
-      this.log(`- ${zone.name} (ID: ${zone.id})`);
-    });
+      this.homeyApi.devices.on('device.create', async ({ id }) => {
+        try {
+          await this._refreshDevices();
+        } catch (err) {
+          this.error(`Error procesando device.create (${id}): ${err.message}`);
+        }
+      });
 
-    // Procesar cada zona en ZONES_ARRAY
-    for (const zoneName of ZONES_ARRAY) {
-      this.log(`\n🔍 Procesando zona: ${zoneName}`);
-
-      const lightsInZone = this.getLightsByZoneReal(devicesObj, zonesObj, zoneName);
-      if (!lightsInZone.length) {
-        this.log(`No se encontraron luces en la zona "${zoneName}".`);
-        continue;
-      }
-
-      const historyByZone = await this.getHistoryByZoneReal(lightsInZone);
-      this.log(`Historial de la zona "${zoneName}":`, JSON.stringify(historyByZone, null, 2));
+      this.homeyApi.devices.on('device.delete', async ({ id }) => {
+        try {
+          await this._handleDeviceDeleted(id);
+        } catch (err) {
+          this.error(`Error procesando device.delete (${id}): ${err.message}`);
+        }
+      });
+    } catch (err) {
+      this.error('Error al inicializar:', err);
     }
-  } catch (err) {
-    this.error('Error al inicializar:', err);
   }
-}
 
+  async _refreshDevices() {
+    this.devices = await this.homeyApi.devices.getDevices();
+    await this._ensureControlSwitch();
+    this._syncLightListeners();
+  }
 
-  /**
-   * Obtener luces en una zona específica
-   */
-  getLightsByZoneReal(devicesObj, zonesObj, zoneName) {
-    const devices = Object.values(devicesObj);
-    const zoneIdByName = Object.values(zonesObj).find(z => z.name === zoneName)?.id;
+  async _ensureControlSwitch() {
+  // 1) Buscar el switch con varias heurísticas (driverId/driverUri/nombre)
+  const controlSwitch = Object.values(this.devices).find(d =>
+    d.driverId === CONTROL_DRIVER_ID ||
+    (typeof d.driverId === 'string' && d.driverId.endsWith(':' + CONTROL_DRIVER_ID)) ||
+    (typeof d.driverUri === 'string' && d.driverUri.endsWith(':' + CONTROL_DRIVER_ID)) ||
+    d.name === 'Occupancy Logger Switch'
+  );
 
-    if (!zoneIdByName) {
-      this.log(`Zona no encontrada por nombre: "${zoneName}"`);
-      return [];
+  if (!controlSwitch) {
+    if (this.controlSwitchListener?.destroy) this.controlSwitchListener.destroy();
+    this.controlSwitchListener = null;
+    this.controlSwitchDeviceId = null;
+    this.enabled = true;
+    if (!this.controlSwitchMissingLogged) {
+      this.log('⚠️ No se encontró "Occupancy Logger Switch". El guardado queda habilitado por defecto.');
+      this.controlSwitchMissingLogged = true;
     }
-
-    
-    const allDevicesInZone = devices.filter(d => d.zone === zoneIdByName);
-    this.log(`Luces en la zona "${zoneName}":`, allDevicesInZone.map(l => l.name));
-    return allDevicesInZone.map(d => ({ id: d.id, name: d.name, zone: zoneName }));
-  
-
-    /*const lights = devices.filter(d =>
-      d.zone === zoneIdByName &&
-      (d.class === 'light' || d.capabilitiesObj?.onoff) // heurística por si es socket/driver custom
-    );
-
-    this.log(`Luces en la zona "${zoneName}":`, lights.map(l => l.name));
-    return lights.map(d => ({ id: d.id, name: d.name, zone: zoneName }));
-    */
+    return;
   }
 
+  this.controlSwitchMissingLogged = false;
+  this.controlSwitchDeviceId = controlSwitch.id;
+  this.enabled = controlSwitch.capabilitiesObj?.onoff?.value ?? true;
 
-  async getHistoryByZoneReal(lightsInZone) {
-    const dateEnd = new Date().toISOString();
-    const dateStart = new Date(Date.now() - DAYS_BACK * 864e5).toISOString();
+  // 2) Usar SIEMPRE el device del Web API para makeCapabilityInstance
+  if (this.controlSwitchListener?.destroy) this.controlSwitchListener.destroy();
 
-    const history = [];
-
-    // Cargar índice de logs una sola vez para acelerar (_findLogMeta puede usarlo)
-    const allLogs = await this.homeyApi.insights.getLogs();
-
-    await Promise.all(lightsInZone.map(async light => {
-      const lightHistory = { deviceId: light.id, name: light.name, zone: light.zone, logs: [] };
-
-      // 1) Obtener log para la capacidad especificada
-      const logMeta =
-        this._findLogMeta(allLogs, light.id, CAPABILITY) ||
-        { id: `homey:device:${light.id}:${CAPABILITY}` }; // intento directo
-
-      // 2) Leer entradas
-      const entries = await this._fetchCapabilityHistoryReal(light.id, CAPABILITY, logMeta, dateStart, dateEnd);
-      if (!entries.length) {
-        this.log(`No se encontraron entradas para "${light.name}".`);
-        history.push(lightHistory);
-        return;
-      }
-
-      // 3) Procesar entradas
-      for (const e of entries) {
-        const t = this._ts(e); // Timestamp
-        const v = !!this._val(e); // Valor booleano
-        if (!Number.isFinite(t)) continue;
-
-        const d = new Date(t);
-
-        // Formatear los datos
-        const logEntry = {
-          date: this.fmtYMD.format(d), // Fecha en formato YYYY-MM-DD
-          dayOfWeek: d.toLocaleDateString('es-ES', { weekday: 'long' }), // Día de la semana
-          month: d.toLocaleDateString('es-ES', { month: 'long' }), // Mes
-          time: this.fmtHM.format(d), // Hora en formato HH:mm
-          value: v, // Valor booleano
-          durationInState: e.durationInState || null // Duración en estado (si está disponible)
-        };
-
-        lightHistory.logs.push(logEntry);
-      }
-
-      history.push(lightHistory);
-    }));
-
-    return history;
-  }
-
-
-  
-
-  async _fetchCapabilityHistoryReal(deviceId, capability, logMeta, dateStart, dateEnd) {
-    const idFull = (logMeta && logMeta.id) ? logMeta.id : `homey:device:${deviceId}:${capability}`;
-
-    const payloads = [
-      { id: idFull, dateStart, dateEnd, aggregation: 'none', limit: 5000 },
-      // opcional: otras agregaciones si te sirven (mean/sum/bucket)
-    ];
-
-    for (const p of payloads) {
-      try {
-        const res = await this.homeyApi.insights.getLogEntries(p);
-        const values = Array.isArray(res?.values) ? res.values
-          : Array.isArray(res?.entries) ? res.entries
-          : Array.isArray(res?.data) ? res.data
-          : Array.isArray(res) ? res
-          : [];
-        if (values.length) return values;
-      } catch (err) {
-        this.log(`Insights error (${idFull}): ${err.message || err}`);
-      }
+  this.controlSwitchListener = controlSwitch.makeCapabilityInstance('onoff', async value => {
+    this.enabled = !!value;
+    this.log(`Occupancy logger ${value ? 'enabled' : 'disabled'}`);
+    if (value) {
+      this.switchOnTimestamp = Date.now();
+      this.eventosGuardados = 0;
+      // si querés noti:
+      // await this.homey.notifications.createNotification({ excerpt: 'Comenzamos a guardar los eventos de las luces.' });
+    } else {
+      this.switchOnTimestamp = null;
+      // await this.homey.notifications.createNotification({ excerpt: 'Se detuvo el guardado de eventos de las luces.' });
     }
-    return [];
-  }
-
-  // === Helpers de Insights ===
-
-// === Helpers de Insights ===
-_findLogMeta(allLogs, deviceId, capability) {
-  const devTag1 = `homey:device:${deviceId}`;
-  const devTag2 = `device:${deviceId}`; // por si tu lib devuelve este formato
-
-  return Object.values(allLogs).find(l => {
-    const uri = l.uri || l.ownerUri || '';
-    const id = l.id || '';
-    const ownerId = l.ownerId || '';
-    const matchesDevice = uri.includes(devTag1) || uri.includes(devTag2);
-    const matchesCap = id.endsWith(`:${capability}`) || ownerId === capability;
-    return matchesDevice && matchesCap;
   });
 }
 
 
-  _dayKey(d) {
-  return this.fmtYMD.format(d); // "dd/mm/aaaa" en es-AR
-}
-_hourKey(d) {
-  const hm = this.fmtHM.format(d); // "HH:mm"
-  const hh = hm.slice(0, 2);
-  return `${hh}:00`; // redondeo a hora
-}
-_ts(e) {
-  const t = e.t ?? e.timestamp ?? e.time ?? e.ts ?? e.date;
-  const n = isNaN(Number(t)) ? Date.parse(t) : Number(t);
-  return Number.isFinite(n) ? n : NaN;
-}
-_val(e) {
-  let v = e.v ?? e.value ?? e.val;
-  // Normalizar: algunos logs devuelven "1"/"0" o 1/0 para boolean
-  if (v === 1 || v === '1') v = true;
-  if (v === 0 || v === '0') v = false;
-  return v;
-}
+  _syncLightListeners() {
+    const knownLightIds = new Set();
 
+    Object.values(this.devices).forEach(device => {
+     
+      if (!Array.isArray(device.capabilities) || !device.capabilities.includes('onoff')) return;
+
+      knownLightIds.add(device.id);
+
+      if (!this.lightListeners.has(device.id)) {
+        const capabilityInstance = device.makeCapabilityInstance('onoff', async value => {
+          const entry = this.lightListeners.get(device.id);
+          const currentDevice = entry?.device || device;
+          await this._handleLightOnOff(currentDevice, value);
+        });
+        this.lightListeners.set(device.id, { device, capabilityInstance });
+      } else {
+        const entry = this.lightListeners.get(device.id);
+        entry.device = device;
+      }
+    });
+
+    for (const [deviceId, entry] of this.lightListeners.entries()) {
+      if (!knownLightIds.has(deviceId)) {
+        entry.capabilityInstance?.destroy?.();
+        this.lightListeners.delete(deviceId);
+      }
+    }
+  }
+
+  async _handleDeviceDeleted(deviceId) {
+    if (this.controlSwitchDeviceId === deviceId) {
+      if (this.controlSwitchListener?.destroy) {
+        this.controlSwitchListener.destroy();
+      }
+      this.controlSwitchListener = null;
+      this.controlSwitchDeviceId = null;
+      this.enabled = true;
+    }
+
+    const entry = this.lightListeners.get(deviceId);
+    if (entry) {
+      entry.capabilityInstance?.destroy?.();
+      this.lightListeners.delete(deviceId);
+    }
+
+    await this._refreshDevices();
+  }
+
+  async _handleLightOnOff(device, value) {
+    try {
+      if (!this.enabled) return;
+
+      const now = new Date();
+      const lightVarName = `light_${device.id}`;
+      let state = await this.homey.settings.get(lightVarName);
+
+      if (!state) {
+        state = { lastOnOffState: null, lastUpdate: now };
+      }
+      if (state.lastOnOffState === value) return;
+
+      const durationPrevStateSecs =
+        state.lastUpdate ? Math.max(0, Math.round((now - new Date(state.lastUpdate)) / 1000)) : null;
+
+      state.lastOnOffState = value;
+      state.lastUpdate = now;
+      await this.homey.settings.set(lightVarName, state);
+
+      let zoneName = 'Sin zona';
+      try {
+        const zoneObj = await this.homeyApi.zones.getZone({ id: device.zone });
+        if (zoneObj?.name) zoneName = zoneObj.name;
+      } catch (error) {
+        this.log(`No se pudo obtener la zona para ${device.id}: ${error.message}`);
+      }
+
+      const logEntry = {
+        event_date: this.fmtYMD.format(now),
+        day_of_week: now.toLocaleDateString('es-ES', { weekday: 'long' }),
+        month_name: now.toLocaleDateString('es-ES', { month: 'long' }),
+        event_time: this.fmtHM.format(now),
+        value_bool: !!value,
+        duration_in_state_seconds: durationPrevStateSecs,
+        zone: zoneName,
+        deviceId: device.id,
+        name: device.name,
+        user_id: this.user?.id ?? null,
+        user_name: this.user?.name ?? null,
+      };
+
+      await this.guardarDatosDeLaSemana(logEntry);
+    } catch (err) {
+      this.error(`Error guardando evento onoff: ${err.message}`);
+    }
+  }
+
+  async guardarDatosDeLaSemana(logEntry) {
+    if (!logEntry || typeof logEntry !== 'object') return;
+    try {
+      const response = await fetch('https://panteasmart.com.ar/server/insert_array.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          tabla: 'simulator',
+          datos: JSON.stringify(logEntry)
+        })
+      });
+
+      const rawResponse = await response.text();
+      let result;
+      try {
+        result = JSON.parse(rawResponse);
+      } catch (err) {
+        throw new Error(`La respuesta no es JSON valido: ${rawResponse}`);
+      }
+
+      if (result.error !== '0') {
+        this.error('Error guardando log:', result);
+      } else {
+        this.eventosGuardados = (this.eventosGuardados || 0) + 1;
+        if (this.eventosGuardados % 10 === 0 && this.switchOnTimestamp) {
+          const minutos = Math.floor((Date.now() - this.switchOnTimestamp) / 60000);
+          this.log(`Guardados ${this.eventosGuardados} eventos en ${minutos} minutos.`);
+        }
+      }
+    } catch (error) {
+      this.error('Error en la conexion con la API de Pantea Smart:', error);
+    }
+  }
 };
