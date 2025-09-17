@@ -16,11 +16,7 @@
   "capabilities": [
     "onoff"
   ],
-  "capabilitiesOptions": {
-    "onoff": {
-      "value": false
-    }
-  },
+ 
   "settings": [],
   "pair": [
     {
