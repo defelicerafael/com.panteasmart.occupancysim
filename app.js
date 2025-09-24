@@ -147,19 +147,39 @@ module.exports = class MyApp extends Homey.App {
       if (!this.enabled) return;
 
       const now = new Date();
+      const nowIso = now.toISOString();
       const lightVarName = `light_${device.id}`;
       let state = await this.homey.settings.get(lightVarName);
 
       if (!state) {
-        state = { lastOnOffState: null, lastUpdate: now };
+        state = { lastOnOffState: null, lastUpdate: null, lastOnTimestamp: null };
       }
+
       if (state.lastOnOffState === value) return;
 
-      const durationPrevStateSecs =
-        state.lastUpdate ? Math.max(0, Math.round((now - new Date(state.lastUpdate)) / 1000)) : null;
-
       state.lastOnOffState = value;
-      state.lastUpdate = now;
+      state.lastUpdate = nowIso;
+
+      if (value) {
+        state.lastOnTimestamp = nowIso;
+        await this.homey.settings.set(lightVarName, state);
+        return;
+      }
+
+      let onTimestamp = null;
+      if (state.lastOnTimestamp) {
+        const parsed = new Date(state.lastOnTimestamp);
+        if (!Number.isNaN(parsed.getTime())) {
+          onTimestamp = parsed;
+        }
+      }
+      if (!onTimestamp) {
+        onTimestamp = now;
+      }
+
+      const durationOnSeconds = Math.max(0, Math.round((now - onTimestamp) / 1000));
+
+      state.lastOnTimestamp = null;
       await this.homey.settings.set(lightVarName, state);
 
       let zoneName = 'Sin zona';
@@ -171,12 +191,12 @@ module.exports = class MyApp extends Homey.App {
       }
 
       const logEntry = {
-        event_date: this.fmtYMD.format(now),
-        day_of_week: now.toLocaleDateString('es-ES', { weekday: 'long' }),
-        month_name: now.toLocaleDateString('es-ES', { month: 'long' }),
-        event_time: this.fmtHM.format(now),
+        event_date: this.fmtYMD.format(onTimestamp),
+        day_of_week: onTimestamp.toLocaleDateString('es-ES', { weekday: 'long' }),
+        month_name: onTimestamp.toLocaleDateString('es-ES', { month: 'long' }),
+        event_time: this.fmtHM.format(onTimestamp),
         value_bool: !!value,
-        duration_in_state_seconds: durationPrevStateSecs,
+        duration_in_state_seconds: durationOnSeconds,
         zone: zoneName,
         deviceId: device.id,
         name: device.name,
