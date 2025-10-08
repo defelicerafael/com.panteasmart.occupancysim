@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 const Homey = require('homey');
 const { HomeyAPI } = require('homey-api');
@@ -262,7 +262,13 @@ module.exports = class MyApp extends Homey.App {
         onTimestamp = now;
       }
 
-      const durationOnSeconds = Math.max(0, Math.round((now - onTimestamp) / 1000));
+      const durationOnSeconds = (() => {
+        const diffMs = now - onTimestamp;
+        if (diffMs <= 0) return 0; // fallback, no tiempo transcurrido
+        let secs = Math.floor(diffMs / 1000); // quitar milisegundos
+        if (secs < 1) secs = 1; // asegurar distinto de cero si hubo cambio
+        return secs;
+      })();
 
       state.lastOnTimestamp = null;
       await this.homey.settings.set(lightVarName, state);
