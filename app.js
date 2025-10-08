@@ -23,6 +23,14 @@ module.exports = class MyApp extends Homey.App {
         hour12: false,
         timeZone: ARG_TIMEZONE,
       });
+      // Nuevo formateador con segundos
+      this.fmtHMS = new Intl.DateTimeFormat('es-AR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: ARG_TIMEZONE,
+      });
 
       this.switchOnTimestamp = null;
       this.eventosGuardados = 0;
@@ -279,7 +287,7 @@ module.exports = class MyApp extends Homey.App {
         event_date: this.fmtYMD.format(onTimestamp),
         day_of_week: onTimestamp.toLocaleDateString('es-ES', { weekday: 'long', timeZone: ARG_TIMEZONE }),
         month_name: onTimestamp.toLocaleDateString('es-ES', { month: 'long', timeZone: ARG_TIMEZONE }),
-        event_time: this.fmtHM.format(onTimestamp),
+        event_time: this.fmtHMS.format(onTimestamp), // ahora con segundos reales
         value_bool: !!value,
         duration_in_state_seconds: durationOnSeconds,
         zone: zoneName,
