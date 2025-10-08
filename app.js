@@ -20,6 +20,7 @@ module.exports = class MyApp extends Homey.App {
       this.controlSwitchDeviceId = null;
       this.controlSwitchMissingLogged = false;
       this.lightListeners = new Map();
+      this.zones = null;
 
       await this._refreshDevices();
 
@@ -45,8 +46,81 @@ module.exports = class MyApp extends Homey.App {
 
   async _refreshDevices() {
     this.devices = await this.homeyApi.devices.getDevices();
+    this.zones = null;
+    await this._ensureZonesCache();
     await this._ensureControlSwitch();
     this._syncLightListeners();
+  }
+
+  async _ensureZonesCache() {
+    if (this.zones && typeof this.zones === 'object' && Object.keys(this.zones).length > 0) {
+      return;
+    }
+    try {
+      this.zones = await this.homeyApi.zones.getZones();
+    } catch (err) {
+      this.zones = null;
+      this.log(`No se pudo actualizar la cache de zonas: ${err.message}`);
+    }
+  }
+
+  async _resolveZoneContext(zoneId) {
+    const fallback = {
+      id: zoneId ?? null,
+      name: 'Sin zona',
+      path: 'Sin zona',
+    };
+
+    if (!zoneId) {
+      return fallback;
+    }
+
+    await this._ensureZonesCache();
+    let zones = this.zones;
+    if (!zones || typeof zones !== 'object') {
+      zones = {};
+      this.zones = zones;
+    }
+    const visited = new Set();
+    const names = [];
+    let currentId = zoneId;
+    let leafZone = null;
+
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
+      let zone = zones[currentId];
+      if (!zone) {
+        try {
+          zone = await this.homeyApi.zones.getZone({ id: currentId });
+          if (zone) {
+            zones[currentId] = zone;
+          }
+        } catch (err) {
+          this.log(`No se pudo obtener la zona ${currentId}: ${err.message}`);
+          break;
+        }
+      }
+
+      if (!zone) {
+        break;
+      }
+
+      if (!leafZone) leafZone = zone;
+      names.push(zone.name ?? `Zona ${currentId}`);
+      currentId = zone.parent;
+    }
+
+    if (!names.length || !leafZone) {
+      return fallback;
+    }
+
+    const path = names.slice().reverse().join(' / ');
+
+    return {
+      id: leafZone.id ?? zoneId,
+      name: leafZone.name ?? fallback.name,
+      path,
+    };
   }
 
   async _ensureControlSwitch() {
@@ -182,13 +256,7 @@ module.exports = class MyApp extends Homey.App {
       state.lastOnTimestamp = null;
       await this.homey.settings.set(lightVarName, state);
 
-      let zoneName = 'Sin zona';
-      try {
-        const zoneObj = await this.homeyApi.zones.getZone({ id: device.zone });
-        if (zoneObj?.name) zoneName = zoneObj.name;
-      } catch (error) {
-        this.log(`No se pudo obtener la zona para ${device.id}: ${error.message}`);
-      }
+      const { name: zoneName, id: zoneId, path: zonePath } = await this._resolveZoneContext(device.zone);
 
       const logEntry = {
         event_date: this.fmtYMD.format(onTimestamp),
@@ -198,6 +266,8 @@ module.exports = class MyApp extends Homey.App {
         value_bool: !!value,
         duration_in_state_seconds: durationOnSeconds,
         zone: zoneName,
+        zone_id: zoneId,
+        zone_path: zonePath,
         deviceId: device.id,
         name: device.name,
         user_id: this.user?.id ?? null,
