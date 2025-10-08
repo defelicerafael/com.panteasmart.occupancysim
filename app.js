@@ -4,14 +4,25 @@ const Homey = require('homey');
 const { HomeyAPI } = require('homey-api');
 
 const CONTROL_DRIVER_ID = 'occupancy_logger_switch';
+const ARG_TIMEZONE = 'America/Argentina/Buenos_Aires';
 
 module.exports = class MyApp extends Homey.App {
   async onInit() {
     try {
       this.homeyApi = await HomeyAPI.createAppAPI({ homey: this.homey });
       this.user = await this.homeyApi.users.getUserMe();
-      this.fmtYMD = new Intl.DateTimeFormat('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit' });
-      this.fmtHM = new Intl.DateTimeFormat('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+      this.fmtYMD = new Intl.DateTimeFormat('sv-SE', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        timeZone: ARG_TIMEZONE,
+      });
+      this.fmtHM = new Intl.DateTimeFormat('es-AR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: ARG_TIMEZONE,
+      });
 
       this.switchOnTimestamp = null;
       this.eventosGuardados = 0;
@@ -260,8 +271,8 @@ module.exports = class MyApp extends Homey.App {
 
       const logEntry = {
         event_date: this.fmtYMD.format(onTimestamp),
-        day_of_week: onTimestamp.toLocaleDateString('es-ES', { weekday: 'long' }),
-        month_name: onTimestamp.toLocaleDateString('es-ES', { month: 'long' }),
+        day_of_week: onTimestamp.toLocaleDateString('es-ES', { weekday: 'long', timeZone: ARG_TIMEZONE }),
+        month_name: onTimestamp.toLocaleDateString('es-ES', { month: 'long', timeZone: ARG_TIMEZONE }),
         event_time: this.fmtHM.format(onTimestamp),
         value_bool: !!value,
         duration_in_state_seconds: durationOnSeconds,
