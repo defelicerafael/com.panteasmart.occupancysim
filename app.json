@@ -60,6 +60,16 @@
       "path": "/setSettings",
       "public": true
     },
+    "getSimulatorSettings": {
+      "method": "GET",
+      "path": "/getSimulatorSettings",
+      "public": true
+    },
+    "setSimulatorSettings": {
+      "method": "POST",
+      "path": "/setSimulatorSettings",
+      "public": true
+    },
     "getUserInfo": {
       "method": "GET",
       "path": "/getUserInfo",

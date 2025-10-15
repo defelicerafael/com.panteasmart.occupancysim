@@ -258,8 +258,33 @@ module.exports = {
       let settings = await homey.settings.get('settings');
       if (!settings) {
         homey.app.log('No se encontraron configuraciones, usando valores por defecto');
-        settings = this.config.settings;
-        await homey.settings.set('settings', settings);
+        //settings = this.config.settings;
+        //await homey.settings.set('settings', settings);
+      }
+
+      const apiUrl = await homey.api.getLocalUrl();
+      homey.app.log('API URL de salida:', apiUrl);
+
+      return {
+        message: 'Settings retrieved successfully',
+        settings: settings,
+        apiUrl: apiUrl,
+      };
+    } catch (error) {
+      homey.app.log('Error retrieving settings:', error);
+      return { error: error.message };
+    }
+  },
+
+  async getSimulatorSettings({ homey }) {
+    try {
+      homey.app.log('Entramos a getSimulatorSettings');
+
+      let settings = await homey.settings.get('SimulatorSettings');
+      if (!settings) {
+        homey.app.log('No se encontraron configuraciones, usando valores por defecto');
+        //settings = this.config.settings;
+        //await homey.settings.set('settings', settings);
       }
 
       const apiUrl = await homey.api.getLocalUrl();
@@ -300,6 +325,34 @@ module.exports = {
       };
     } catch (error) {
       //homey.app.log('Error updating settings:', error);
+      return { error: error.message };
+    }
+  },
+
+  async setSimulatorSettings({ homey, body }) {
+    try {
+      if (!body || !body.settings) {
+        // Si no hay settings en el cuerpo de la solicitud, reiniciamos a un objeto vacío
+        await homey.settings.set('SimulatorSettings', {});
+        //homey.app.log('Configuraciones reiniciadas a un objeto vacío.');
+        
+        return {
+          message: 'Settings cleared successfully',
+          settings: {},
+        };
+      }
+  
+      // Guardar configuraciones proporcionadas
+      await homey.settings.set('SimulatorSettings', body.settings);
+      const savedSettings = await homey.settings.get('SimulatorSettings');
+      homey.app.log('Configuraciones guardadas exitosamente:', savedSettings);
+  
+      return {
+        message: 'Settings updated successfully',
+        settings: savedSettings,
+      };
+    } catch (error) {
+      homey.app.log('Error updating settings:', error);
       return { error: error.message };
     }
   },

@@ -10,7 +10,12 @@ module.exports = class MyApp extends Homey.App {
   async onInit() {
     try {
       this.homeyApi = await HomeyAPI.createAppAPI({ homey: this.homey });
+      console.log(" Homey API inicializada correctamente.");
       this.user = await this.homeyApi.users.getUserMe();
+      console.log(" Usuario cargado:", this.user);
+      this.systemInfo = await this.homeyApi.system.getInfo();
+      console.log(" System Info:", this.systemInfo);
+      
       this.fmtYMD = new Intl.DateTimeFormat('sv-SE', {
         year: 'numeric',
         month: '2-digit',
