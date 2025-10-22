@@ -47,6 +47,15 @@ module.exports = class MyApp extends Homey.App {
       this.zones = null;
 
       await this._refreshDevices();
+      
+      // Mostrar todas las claves guardadas en settings al iniciar
+      const allKeys = await this.homey.settings.getKeys();
+      this.log('🔧 Settings actuales:', allKeys);
+
+      for (const key of allKeys) {
+        const value = await this.homey.settings.get(key);
+        this.log(`🗂️ ${key}:`, value);
+      }
 
       this.homeyApi.devices.on('device.create', async ({ id }) => {
         try {
