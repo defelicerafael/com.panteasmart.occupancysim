@@ -16,7 +16,8 @@
     "lights"
   ],
   "permissions": [
-    "homey:manager:api"
+    "homey:manager:api",
+    "homey:manager:geolocation"
   ],
   "api": {
     "setHomeyApi": {
@@ -107,13 +108,37 @@
       ],
       "connectivity": [],
       "capabilities": [
-        "onoff"
+        "onoff",
+        "onoff_simulator"
       ],
+      "capabilitiesOptions": {
+        "onoff_simulator": {
+          "title": {
+            "en": "Start Simulation",
+            "es": "Empezar Simulación"
+          },
+          "uiComponent": "toggle"
+        }
+      },
       "images": {
         "small": "/drivers/occupancy_logger_switch/assets/images/small.png",
         "large": "/drivers/occupancy_logger_switch/assets/images/large.png",
         "xlarge": "/drivers/occupancy_logger_switch/assets/images/xlarge.png"
       }
     }
-  ]
+  ],
+  "capabilities": {
+    
+    "onoff_simulator": {
+      "type": "boolean",
+      "title": {
+        "en": "Start Simulation"
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "button",
+      "uiQuickAction": false
+    }
+    
+  }
 }

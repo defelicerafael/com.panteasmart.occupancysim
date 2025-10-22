@@ -1,0 +1,15 @@
+{
+  "title": {
+    "en": "Simulation",
+    "es": "Simulación"
+  },
+  "desc": {
+    "en": "Start or stop the occupancy simulation",
+    "es": "Activa o detiene la simulación de ocupación"
+  },
+  "type": "boolean",
+  "getable": true,
+  "setable": true,
+  "uiComponent": "button",
+  "uiQuickAction": false
+}

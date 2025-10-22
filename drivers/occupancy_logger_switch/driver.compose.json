@@ -14,7 +14,8 @@
   },
   "connectivity": [],
   "capabilities": [
-    "onoff"
+    "onoff",
+    "onoff_simulator"
   ],
  
   "settings": [],

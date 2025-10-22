@@ -10,11 +10,11 @@ module.exports = class MyApp extends Homey.App {
   async onInit() {
     try {
       this.homeyApi = await HomeyAPI.createAppAPI({ homey: this.homey });
-      console.log(" Homey API inicializada correctamente.");
+      //console.log(" Homey API inicializada correctamente.");
       this.user = await this.homeyApi.users.getUserMe();
-      console.log(" Usuario cargado:", this.user);
+      //console.log(" Usuario cargado:", this.user);
       this.systemInfo = await this.homeyApi.system.getInfo();
-      console.log(" System Info:", this.systemInfo);
+      //console.log(" System Info:", this.systemInfo);
       
       this.fmtYMD = new Intl.DateTimeFormat('sv-SE', {
         year: 'numeric',
@@ -47,16 +47,20 @@ module.exports = class MyApp extends Homey.App {
       this.zones = null;
 
       await this._refreshDevices();
-      
-      // Mostrar todas las claves guardadas en settings al iniciar
-      const allKeys = await this.homey.settings.getKeys();
-      this.log('🔧 Settings actuales:', allKeys);
 
-      for (const key of allKeys) {
-        const value = await this.homey.settings.get(key);
-        this.log(`🗂️ ${key}:`, value);
+      // CARGAMOS LOS SETTINGS DEL SIMULADOR
+
+      await this.cargarSimulatorConfig();
+      await this.cargarDatosSimulador();
+
+      const sun = await this.getSunTimes();
+      if (sun) {
+        const rango = this.calcularRangoSimulacion(sun.sunriseUTC, sun.sunsetUTC);
       }
-
+      // FIN DE LA CARGA DE SETTINGS DEL SIMULADOR
+      
+      
+      
       this.homeyApi.devices.on('device.create', async ({ id }) => {
         try {
           await this._refreshDevices();
@@ -352,4 +356,338 @@ module.exports = class MyApp extends Homey.App {
       this.error('Error en la conexion con la API de Pantea Smart:', error);
     }
   }
+
+  /* PROCESOS DEL SIMULADOR */
+
+  // llamamos al settings y guardamos las variables internas
+
+  async cargarSimulatorConfig() {
+    try {
+      const simulatorSettings = await this.homey.settings.get('SimulatorSettings');
+
+      if (!simulatorSettings || !simulatorSettings.simulatorConfig) {
+        this.log('⚠️ No se encontró simulatorConfig en settings.');
+        return;
+      }
+
+      const cfg = simulatorSettings.simulatorConfig;
+
+      // Guardar cada valor como propiedad interna
+      this.simulation_coverage = cfg.simulation_coverage ?? 0;
+      this.on_duration = cfg.on_duration ?? 0;
+      this.random_start_delay_minutes = cfg.random_start_delay_minutes ?? 0;
+      this.AllDaySimulation = cfg.AllDaySimulation ?? false;
+      this.BeforeSunsetStartSimulation = cfg.BeforeSunsetStartSimulation ?? 0;
+      this.AfterSunriseEndSimulation = cfg.AfterSunriseEndSimulation ?? 0;
+
+      // Mostrar en logs para control
+      //this.log('🧠 Configuración del simulador cargada:');
+      /*this.log({
+        simulation_coverage: this.simulation_coverage,
+        on_duration: this.on_duration,
+        random_start_delay_minutes: this.random_start_delay_minutes,
+        AllDaySimulation: this.AllDaySimulation,
+        BeforeSunsetStartSimulation: this.BeforeSunsetStartSimulation,
+        AfterSunriseEndSimulation: this.AfterSunriseEndSimulation,
+      });*/
+    } catch (err) {
+      this.error('Error al cargar simulatorConfig:', err);
+    }
+  }
+
+
+  // CARGA LOS DATOS DEL SIMULADOR EN UN ARRAY 
+  async cargarDatosSimulador() {
+    try {
+      const simulatorSettings = await this.homey.settings.get('SimulatorSettings');
+      if (!simulatorSettings || !simulatorSettings.simulator) {
+        this.log('⚠️ No se encontraron datos del simulador en settings.');
+        this.simulatorData = [];
+        return;
+      }
+
+      let simulatorRaw = simulatorSettings.simulator;
+      let simulatorParsed;
+
+      // Si el valor viene como string JSON → parsearlo
+      if (typeof simulatorRaw === 'string') {
+        try {
+          simulatorParsed = JSON.parse(simulatorRaw);
+        } catch (err) {
+          this.error('❌ Error al parsear el campo simulator:', err.message);
+          this.simulatorData = [];
+          return;
+        }
+      } else {
+        simulatorParsed = simulatorRaw;
+      }
+
+      // Validar estructura esperada
+      if (!simulatorParsed.simulator || !Array.isArray(simulatorParsed.simulator)) {
+        this.log('⚠️ Estructura del simulador inesperada.');
+        this.simulatorData = [];
+        return;
+      }
+
+      // Guardar los datos en memoria
+      this.simulatorData = simulatorParsed.simulator;
+
+      this.log(`✅ Cargados ${this.simulatorData.length} eventos del simulador.`);
+      //this.log('📋 Primeros 3 eventos:');
+      //this.log(JSON.stringify(this.simulatorData.slice(0, 3), null, 2));
+
+    } catch (err) {
+      this.error('Error cargando datos del simulador:', err);
+      this.simulatorData = [];
+    }
+  }
+
+  // ME FIJO LA UBICACION DE HOMEY PARA SACAR LA HRA DE ATARDECER Y AMANECER
+  async getSunTimes() {
+    try {
+      // --- Obtener coordenadas desde Homey ---
+      const lat = this.homey.geolocation.getLatitude();
+      const lon = this.homey.geolocation.getLongitude();
+      const mode = this.homey.geolocation.getMode();
+
+      this.log(`📍 Ubicación Homey (${mode}): lat=${lat}, lon=${lon}`);
+
+      // Fallback si faltan coordenadas
+      const latitude = (lat && !isNaN(lat)) ? lat : -34.6037;
+      const longitude = (lon && !isNaN(lon)) ? lon : -58.3816;
+
+      // --- Construir URL con fecha actual ---
+      const today = new Date();
+      const dateStr = today.toISOString().split('T')[0];
+      const url = `https://api.sunrise-sunset.org/json?lat=${latitude}&lng=${longitude}&date=${dateStr}&formatted=0`;
+      this.log('🔗 URL llamada:', url);
+
+      // --- Llamada a la API ---
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (data.status !== 'OK') throw new Error('Respuesta inválida de la API.');
+
+      // --- Convertir UTC → hora local correctamente ---
+      const tz = this.systemInfo?.timezone ?? 'America/Argentina/Buenos_Aires';
+      const fmt = new Intl.DateTimeFormat('es-AR', {
+        timeZone: tz,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      });
+
+      const sunriseUTC = new Date(data.results.sunrise);
+      const sunsetUTC  = new Date(data.results.sunset);
+
+      const sunriseLocal = fmt.format(sunriseUTC);
+      const sunsetLocal  = fmt.format(sunsetUTC);
+
+      this.log(`🌅 Amanecer local (${tz}): ${sunriseLocal}`);
+      this.log(`🌇 Atardecer local (${tz}): ${sunsetLocal}`);
+
+      // --- Devolver ambos valores UTC + string local ---
+      return { sunriseUTC, sunsetUTC, sunriseLocal, sunsetLocal };
+
+    } catch (err) {
+      this.error('Error obteniendo horas de sol:', err);
+      return null;
+    }
+  }
+
+  calcularRangoSimulacion(sunrise, sunset) {
+    try {
+      if (!sunrise || !sunset) {
+        this.error('❌ No se pasaron valores de amanecer/atardecer válidos.');
+        return null;
+      }
+
+      // Obtener minutos desde settings (ya cargados en this)
+      const beforeSunsetMin = this.BeforeSunsetStartSimulation ?? 0;
+      const afterSunriseMin = this.AfterSunriseEndSimulation ?? 0;
+
+      // Calcular horarios ajustados
+      const startTime = new Date(sunset.getTime() - beforeSunsetMin * 60000);
+      const endTime   = new Date(sunrise.getTime() + afterSunriseMin * 60000);
+
+      // Formatear para mostrar
+      const fmt = new Intl.DateTimeFormat('es-AR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: this.systemInfo?.timezone ?? 'America/Argentina/Buenos_Aires'
+      });
+
+      this.log('🕓 Rango de simulación calculado:');
+      this.log(`   Inicio → ${fmt.format(startTime)} ( ${beforeSunsetMin} min antes del atardecer )`);
+      this.log(`   Fin    → ${fmt.format(endTime)} ( ${afterSunriseMin} min después del amanecer )`);
+
+      return { startTime, endTime };
+
+    } catch (err) {
+      this.error('Error calculando rango de simulación:', err);
+      return null;
+    }
+  }
+
+
+  /* ================================
+   🔹 SIMULACIÓN - FUNCIONES PRINCIPALES
+   ================================ */
+
+// llamada desde el dispositivo (Occupancy Logger Switch)
+async iniciarSimulacionDesdeDevice(device) {
+  try {
+    this.log(`🎬 [${device.getName()}] → Iniciando simulación desde dispositivo`);
+
+    // 🧠 Si el modo "todo el día" está activo → arranca ya
+    if (this.AllDaySimulation) {
+      const msg = '☀️ Modo “Todo el día” activo: la simulación comienza ahora.';
+      this.log(msg);
+      await device.setWarning(msg);
+      await this.homey.notifications.createNotification({ excerpt: msg });
+      await this.ejecutarSimulacion(device);
+      return;
+    }
+
+    // Obtener horarios de sol
+    const sun = await this.getSunTimes();
+    if (!sun) throw new Error('No se pudieron obtener los horarios del sol.');
+
+    const rango = this.calcularRangoSimulacion(sun.sunriseUTC, sun.sunsetUTC);
+    if (!rango) throw new Error('No se pudo calcular el rango.');
+
+    const now = new Date();
+    const tz = this.systemInfo?.timezone ?? 'America/Argentina/Buenos_Aires';
+    const fmt = new Intl.DateTimeFormat('es-AR', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+
+    let msg;
+    if (now >= rango.startTime && now <= rango.endTime) {
+      msg = '🚀 La simulación comienza ahora.';
+      await device.setWarning(msg);
+      await this.homey.notifications.createNotification({ excerpt: msg });
+      await this.ejecutarSimulacion(device);
+    } else if (now < rango.startTime) {
+      const diff = rango.startTime - now;
+      const minutos = Math.round(diff / 60000);
+      msg = `🕕 La simulación comenzará a las ${fmt.format(rango.startTime)} (en ${minutos} min)`;
+      this.log(`⏱️ Programada para iniciar en ${minutos} minutos.`);
+      await device.setWarning(msg);
+      await this.homey.notifications.createNotification({ excerpt: msg });
+
+      // Programar inicio
+      setTimeout(() => {
+        this.ejecutarSimulacion(device);
+      }, diff);
+    } else {
+      msg = '🌙 La simulación de hoy ya terminó. Se reanudará mañana.';
+      await device.setWarning(msg);
+      await this.homey.notifications.createNotification({ excerpt: msg });
+    }
+
+  } catch (err) {
+    this.error('Error al iniciar simulación:', err);
+    const msg = `❌ Error: ${err.message}`;
+    await device.setWarning(msg);
+    await this.homey.notifications.createNotification({ excerpt: msg });
+  }
+}
+
+async detenerSimulacionDesdeDevice(device) {
+  try {
+    this.log(`🧯 [${device.getName()}] → Solicitando detener simulación...`);
+
+    // Obtener horas de sol
+    const sun = await this.getSunTimes();
+    if (!sun) throw new Error('No se pudieron obtener horarios solares.');
+
+    const rango = this.calcularRangoSimulacion(sun.sunriseUTC, sun.sunsetUTC);
+    if (!rango) throw new Error('No se pudo calcular el rango de simulación.');
+
+    const now = new Date();
+    const tz = this.systemInfo?.timezone ?? 'America/Argentina/Buenos_Aires';
+    const fmt = new Intl.DateTimeFormat('es-AR', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+
+    // Si todavía no llegó el amanecer → programar apagado para endTime
+    if (now < rango.endTime) {
+      const diff = rango.endTime - now;
+      const msg = `🕓 La simulación se detendrá automáticamente a las ${fmt.format(rango.endTime)}.`;
+      this.log(msg);
+      await device.setWarning(msg);
+      await this.homey.notifications.createNotification({ excerpt: msg });
+
+      // Si había un timer previo, lo reemplazamos
+      if (this.simulationTimer) clearTimeout(this.simulationTimer);
+      this.simulationTimer = setTimeout(() => {
+        this._finalizarSimulacion(device);
+      }, diff);
+
+    } else {
+      // Ya pasó el amanecer → apagar ya
+      await this._finalizarSimulacion(device);
+    }
+
+  } catch (err) {
+    this.error('Error al detener simulación:', err);
+    const msg = `❌ Error al detener simulación: ${err.message}`;
+    await device.setWarning(msg);
+  }
+}
+
+// 🔚 Función auxiliar interna
+async _finalizarSimulacion(device) {
+  this.log(`🌅 [${device.getName()}] → Simulación finalizada.`);
+  await device.setWarning('🌅 Simulación finalizada.');
+  await this.homey.notifications.createNotification({
+    excerpt: '🌅 Simulación finalizada.'
+  });
+
+  if (this.simulationTimer) {
+    clearTimeout(this.simulationTimer);
+    this.simulationTimer = null;
+  }
+}
+
+
+// Placeholder de la simulación real
+async ejecutarSimulacion(device) {
+  try {
+    this.log(`🎯 [${device.getName()}] Ejecutando simulación (placeholder)...`);
+    await device.setWarning('🎬 Simulación ejecutándose...');
+    await this.homey.notifications.createNotification({
+      excerpt: '🎬 Simulación iniciada (placeholder, sin acciones).'
+    });
+
+    // ⚠️ Futuro:
+    // - recorrer this.simulatorData
+    // - decidir qué luces prender/apagar
+    // - aplicar random_start_delay_minutes, on_duration, coverage, etc.
+
+  } catch (err) {
+    this.error('Error en ejecutarSimulacion:', err);
+    await device.setWarning(`❌ Error: ${err.message}`);
+  }
+}
+
+
+
+
+
+  
+
+
+
+
 };

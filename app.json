@@ -17,7 +17,8 @@
     "lights"
   ],
   "permissions": [
-    "homey:manager:api"
+    "homey:manager:api",
+    "homey:manager:geolocation"
   ],
   "api": {
     "setHomeyApi": {
@@ -113,7 +114,8 @@
       },
       "connectivity": [],
       "capabilities": [
-        "onoff"
+        "onoff",
+        "onoff_simulator"
       ],
       "settings": [],
       "pair": [
@@ -130,5 +132,22 @@
         }
       ]
     }
-  ]
+  ],
+  "capabilities": {
+    "onoff_simulator": {
+      "title": {
+        "en": "Simulation",
+        "es": "Simulación"
+      },
+      "desc": {
+        "en": "Start or stop the occupancy simulation",
+        "es": "Activa o detiene la simulación de ocupación"
+      },
+      "type": "boolean",
+      "getable": true,
+      "setable": true,
+      "uiComponent": "button",
+      "uiQuickAction": false
+    }
+  }
 }
